@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flipbook Viewer</title>
+<style>
+  /* ── CONFIG: change these to match your branding ── */
+  :root {
+    --accent: #1a56db;
+    --accent-light: #e8f0fe;
+    --bg: #f8f9fb;
+    --surface: #ffffff;
+    --border: #e2e5ea;
+    --text: #1c1e21;
+    --muted: #6b7280;
+    --radius: 10px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 1.5rem 1rem 2rem;
+    color: var(--text);
+  }
+
+  /* ── sr-only utility ── */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+
+  /* ── header ── */
+  header {
+    width: 100%; max-width: 760px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  #flipbook-title {
+    font-size: 1rem; font-weight: 600; color: var(--text);
+  }
+  #page-label {
+    font-size: 0.8rem; color: var(--muted);
+  }
+
+  /* ── progress bar ── */
+  .progress-track {
+    width: 100%; max-width: 760px;
+    height: 3px; background: var(--border);
+    border-radius: 3px; margin-bottom: 1rem; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 3px; transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  /* ── stage ── */
+  .stage-wrap {
+    position: relative; width: 100%; max-width: 760px;
+  }
+  .stage {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+
+  /* slides */
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.32s ease;
+    pointer-events: none;
+  }
+  .slide.active { opacity: 1; pointer-events: auto; }
+  .slide img {
+    max-width: 100%; max-height: 100%;
+    object-fit: contain; display: block;
+    border-radius: 4px;
+  }
+
+  /* placeholder / loading */
+  .slide-placeholder {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 0.75rem;
+    color: var(--muted); font-size: 0.85rem; text-align: center; padding: 2rem;
+  }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* nav arrows */
+  .nav-btn {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    width: 40px; height: 40px; z-index: 5;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text); font-size: 1.1rem;
+    transition: background 0.15s, box-shadow 0.15s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .nav-btn:hover { background: var(--accent-light); }
+  .nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; box-shadow: none; }
+  .nav-btn.prev { left: -20px; }
+  .nav-btn.next { right: -20px; }
+
+  @media (max-width: 600px) {
+    .nav-btn.prev { left: 8px; }
+    .nav-btn.next { right: 8px; }
+  }
+
+  /* ── dot strip ── */
+  .dot-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; margin-top: 1rem; flex-wrap: wrap;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--border); border: none; cursor: pointer; padding: 0;
+    transition: background 0.2s, transform 0.2s;
+  }
+  .dot.active { background: var(--accent); transform: scale(1.4); }
+  .dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  /* ── thumbnail strip ── */
+  .thumb-strip {
+    display: flex; gap: 8px; overflow-x: auto;
+    padding: 0.75rem 0; max-width: 760px; width: 100%;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .thumb {
+    flex: 0 0 80px; height: 58px;
+    border: 2px solid transparent;
+    border-radius: 6px; overflow: hidden;
+    cursor: pointer; background: var(--surface);
+    transition: border-color 0.2s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb.active { border-color: var(--accent); }
+  .thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ── toolbar ── */
+  .toolbar {
+    display: flex; align-items: center; gap: 0.5rem;
+    max-width: 760px; width: 100%; margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .tool-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.8rem; font-family: var(--font);
+    padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface);
+    cursor: pointer; color: var(--text); text-decoration: none;
+    transition: background 0.15s;
+  }
+  .tool-btn:hover { background: var(--accent-light); }
+  .tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tool-btn svg { width: 14px; height: 14px; }
+
+  /* ── error banner ── */
+  .error-banner {
+    display: none; background: #fff3cd; border: 1px solid #ffc107;
+    border-radius: var(--radius); padding: 0.75rem 1rem;
+    font-size: 0.85rem; color: #664d03; max-width: 760px; width: 100%;
+    margin-bottom: 0.75rem; line-height: 1.5;
+  }
+  .error-banner.show { display: block; }
+
+  /* ── fullscreen ── */
+  .stage-wrap:fullscreen,
+  .stage-wrap:-webkit-full-screen {
+    background: #000; display: flex;
+    align-items: center; justify-content: center;
+  }
+  .stage-wrap:fullscreen .stage,
+  .stage-wrap:-webkit-full-screen .stage {
+    max-width: 100vw; max-height: 100vh;
+    aspect-ratio: unset; height: 100vh; border-radius: 0;
+    border: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════
+     USER CONFIG — edit these two values
+     ═══════════════════════════════════════════════ -->
+<script>
+  /*
+   * STEP 1 — paste your Apps Script Web App URL here.
+   *           (See README / setup guide for instructions.)
+   *           Leave as "" to use the demo slides below.
+   */
+  const APPS_SCRIPT_URL = "";
+
+  /*
+   * STEP 2 — title shown in the header
+   */
+  const FLIPBOOK_TITLE = "My Flipbook";
+
+  /*
+   * STEP 3 — fallback demo slides (used when APPS_SCRIPT_URL is empty)
+   *           Replace these with your own image URLs, or leave them
+   *           as placeholders until your Drive folder is ready.
+   */
+  const DEMO_SLIDES = [
+    { url: "https://placehold.co/1200x900/e8f0fe/1a56db?text=Slide+1", label: "Slide 1" },
+    { url: "https://placehold.co/1200x900/e8f0fe/1a56db?text=Slide+2", label: "Slide 2" },
+    { url: "https://placehold.co/1200x900/e8f0fe/1a56db?text=Slide+3", label: "Slide 3" },
+    { url: "https://placehold.co/1200x900/e8f0fe/1a56db?text=Slide+4", label: "Slide 4" },
+    { url: "https://placehold.co/1200x900/e8f0fe/1a56db?text=Slide+5", label: "Slide 5" },
+  ];
+</script>
+<!-- ═══════════════════════════════════════════════ -->
+
+<h1 class="sr-only">Flipbook viewer</h1>
+
+<header>
+  <span id="flipbook-title"></span>
+  <span id="page-label" aria-live="polite" aria-atomic="true"></span>
+</header>
+
+<div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBar">
+  <div class="progress-fill" id="progressFill"></div>
+</div>
+
+<div class="error-banner" id="errorBanner" role="alert"></div>
+
+<div class="stage-wrap" id="stageWrap">
+  <button class="nav-btn prev" id="prevBtn" aria-label="Previous slide" disabled>&#8249;</button>
+  <div class="stage" id="stage" aria-label="Flipbook slides" role="region">
+    <div class="slide active">
+      <div class="slide-placeholder">
+        <div class="spinner" role="status" aria-label="Loading slides"></div>
+        <span>Loading slides…</span>
+      </div>
+    </div>
+  </div>
+  <button class="nav-btn next" id="nextBtn" aria-label="Next slide" disabled>&#8250;</button>
+</div>
+
+<div class="dot-row" id="dotRow" role="tablist" aria-label="Slide navigation"></div>
+<div class="thumb-strip" id="thumbStrip" role="list" aria-label="Slide thumbnails"></div>
+
+<div class="toolbar">
+  <button class="tool-btn" id="fullscreenBtn" aria-label="Toggle fullscreen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+    Fullscreen
+  </button>
+  <a class="tool-btn" id="downloadBtn" href="#" download aria-label="Download current slide" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Download slide
+  </a>
+  <span style="margin-left:auto;font-size:0.75rem;color:var(--muted)" id="sourceNote"></span>
+</div>
+
+<div aria-live="polite" aria-atomic="true" class="sr-only" id="liveAnnounce"></div>
+
+<script>
+(async function() {
+  /* ── DOM refs ── */
+  const stage      = document.getElementById('stage');
+  const dotRow     = document.getElementById('dotRow');
+  const thumbStrip = document.getElementById('thumbStrip');
+  const prevBtn    = document.getElementById('prevBtn');
+  const nextBtn    = document.getElementById('nextBtn');
+  const pageLabel  = document.getElementById('page-label');
+  const progFill   = document.getElementById('progressFill');
+  const progBar    = document.getElementById('progressBar');
+  const liveAnn    = document.getElementById('liveAnnounce');
+  const errBanner  = document.getElementById('errorBanner');
+  const dlBtn      = document.getElementById('downloadBtn');
+  const srcNote    = document.getElementById('sourceNote');
+  const fsBtn      = document.getElementById('fullscreenBtn');
+  const titleEl    = document.getElementById('flipbook-title');
+
+  titleEl.textContent = FLIPBOOK_TITLE;
+  document.title = FLIPBOOK_TITLE;
+
+  let slides = [];
+  let cur = 0;
+
+  /* ── fetch slides ── */
+  async function fetchSlides() {
+    if (APPS_SCRIPT_URL) {
+      try {
+        const res = await fetch(APPS_SCRIPT_URL);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        srcNote.textContent = 'Source: Google Drive';
+        return data; // expects [{url, label}, ...]
+      } catch(e) {
+        showError('Could not load from Google Drive. Showing demo slides. (' + e.message + ')');
+      }
+    }
+    srcNote.textContent = 'Demo mode — add your Apps Script URL to load from Drive';
+    return DEMO_SLIDES;
+  }
+
+  function showError(msg) {
+    errBanner.textContent = '⚠ ' + msg;
+    errBanner.classList.add('show');
+  }
+
+  /* ── build UI ── */
+  function buildViewer(data) {
+    slides = data;
+    stage.innerHTML = '';
+    dotRow.innerHTML = '';
+    thumbStrip.innerHTML = '';
+
+    slides.forEach((s, i) => {
+      /* main slide */
+      const div = document.createElement('div');
+      div.className = 'slide' + (i === 0 ? ' active' : '');
+      div.setAttribute('role', 'group');
+      div.setAttribute('aria-label', s.label || ('Slide ' + (i+1)));
+      div.setAttribute('aria-hidden', i !== 0 ? 'true' : 'false');
+      const img = document.createElement('img');
+      img.src = s.url;
+      img.alt = s.label || ('Slide ' + (i+1));
+      img.loading = i === 0 ? 'eager' : 'lazy';
+      div.appendChild(img);
+      stage.appendChild(div);
+
+      /* dot */
+      const dot = document.createElement('button');
+      dot.className = 'dot' + (i === 0 ? ' active' : '');
+      dot.setAttribute('role', 'tab');
+      dot.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+      dot.setAttribute('aria-label', 'Go to slide ' + (i+1));
+      dot.setAttribute('tabindex', i === 0 ? '0' : '-1');
+      dot.dataset.i = i;
+      dot.addEventListener('click', () => go(i));
+      dotRow.appendChild(dot);
+
+      /* thumbnail */
+      const th = document.createElement('button');
+      th.className = 'thumb' + (i === 0 ? ' active' : '');
+      th.setAttribute('role', 'listitem');
+      th.setAttribute('aria-label', 'Go to slide ' + (i+1));
+      th.setAttribute('aria-current', i === 0 ? 'true' : 'false');
+      th.dataset.i = i;
+      const tim = document.createElement('img');
+      tim.src = s.url;
+      tim.alt = '';
+      tim.loading = 'lazy';
+      th.appendChild(tim);
+      th.addEventListener('click', () => go(i));
+      thumbStrip.appendChild(th);
+    });
+
+    updateUI();
+    prevBtn.disabled = false;
+    nextBtn.disabled = false;
+    dlBtn.style.display = '';
+  }
+
+  function go(n) {
+    const allSlides = stage.querySelectorAll('.slide');
+    const allDots   = dotRow.querySelectorAll('.dot');
+    const allThumbs = thumbStrip.querySelectorAll('.thumb');
+
+    allSlides[cur].classList.remove('active');
+    allSlides[cur].setAttribute('aria-hidden', 'true');
+    allDots[cur].classList.remove('active');
+    allDots[cur].setAttribute('aria-selected', 'false');
+    allDots[cur].tabIndex = -1;
+    allThumbs[cur].classList.remove('active');
+    allThumbs[cur].removeAttribute('aria-current');
+
+    cur = n;
+
+    allSlides[cur].classList.add('active');
+    allSlides[cur].setAttribute('aria-hidden', 'false');
+    allDots[cur].classList.add('active');
+    allDots[cur].setAttribute('aria-selected', 'true');
+    allDots[cur].tabIndex = 0;
+    allThumbs[cur].classList.add('active');
+    allThumbs[cur].setAttribute('aria-current', 'true');
+
+    /* scroll thumb into view */
+    allThumbs[cur].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
+    updateUI();
+  }
+
+  function updateUI() {
+    const total = slides.length;
+    const pct = total > 1 ? Math.round((cur + 1) / total * 100) : 100;
+    pageLabel.textContent = 'Page ' + (cur + 1) + ' of ' + total;
+    progFill.style.width = pct + '%';
+    progBar.setAttribute('aria-valuenow', pct);
+    liveAnn.textContent = 'Slide ' + (cur + 1) + ' of ' + total;
+
+    prevBtn.disabled = cur === 0;
+    nextBtn.disabled = cur === slides.length - 1;
+
+    if (slides[cur]) {
+      dlBtn.href = slides[cur].url;
+      dlBtn.setAttribute('download', slides[cur].label || ('slide-' + (cur+1)));
+    }
+  }
+
+  /* ── keyboard nav ── */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft'  && cur > 0)              go(cur - 1);
+    if (e.key === 'ArrowRight' && cur < slides.length-1) go(cur + 1);
+    if (e.key === 'Home') go(0);
+    if (e.key === 'End')  go(slides.length - 1);
+  });
+
+  prevBtn.addEventListener('click', () => { if (cur > 0) go(cur - 1); });
+  nextBtn.addEventListener('click', () => { if (cur < slides.length - 1) go(cur + 1); });
+
+  /* ── fullscreen ── */
+  fsBtn.addEventListener('click', () => {
+    const wrap = document.getElementById('stageWrap');
+    if (!document.fullscreenElement) {
+      wrap.requestFullscreen?.() || wrap.webkitRequestFullscreen?.();
+    } else {
+      document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+    }
+  });
+
+  /* ── init ── */
+  const data = await fetchSlides();
+  buildViewer(data);
+})();
+</script>
+</body>
+</html>
