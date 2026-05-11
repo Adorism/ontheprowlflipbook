@@ -53,7 +53,7 @@ Save the file.
 
 ## Step 4 — Host on GitHub Pages (free)
 
-1. Create a free account at [github.com](https://github.com)
+1. Create a free account at [github.com](https://github.com), if you don't have one already
 2. Click **New repository** → name it anything (e.g. `flipbook`)
 3. Upload `flipbook.html` to the repo
 4. Go to **Settings → Pages → Source → main branch → Save**
